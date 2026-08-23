@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MosqAway — Bluetooth Relay Control</title>
+<style>
+  :root{
+    --bg-0:#0e1618; --bg-1:#16201f; --panel:#1b2624; --panel-2:#212f2c;
+    --hairline:#2c3a37; --text:#ece4d3; --text-dim:#8a9591;
+    --amber:#e8a33d; --amber-dim:#8a6a2f; --ember:#ff6a45; --ember-dim:#7a3a28;
+    --blue:#5aa9e6; --green-on:#7ec98f; --radius:14px; font-size:16px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #1c2b28 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, #24201a 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+    color:var(--text);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    min-height:100vh;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+    display:flex; justify-content:center;
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+  }
+  .wrap{ width:100%; max-width:460px; }
+  header{ display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:22px; }
+  .wordmark{ font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:13px; letter-spacing:.24em; text-transform:uppercase; color:var(--text-dim); }
+  h1{ margin:2px 0 0; font-size:28px; font-weight:650; letter-spacing:-0.01em; }
+  .mosq{ color:var(--amber); }
+  .status-pill{ display:flex; align-items:center; gap:7px; font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); background:var(--panel); border:1px solid var(--hairline); padding:7px 11px; border-radius:999px; white-space:nowrap; margin-top:2px; }
+  .dot{ width:7px; height:7px; border-radius:50%; background:#5c6866; flex:none; }
+  .status-pill.live .dot{ background:var(--green-on); box-shadow:0 0 0 3px rgba(126,201,143,.18); }
+  .status-pill.live{ color:var(--green-on); border-color:#2e4a37; }
+  .panel{ background:var(--panel); border:1px solid var(--hairline); border-radius:var(--radius); padding:18px; margin-bottom:14px; }
+  .panel h2{ font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); margin:0 0 14px; display:flex; align-items:center; justify-content:space-between; }
+  button{ font-family:inherit; cursor:pointer; border:none; }
+  button:focus-visible, input:focus-visible, .toggle:focus-visible{ outline:2px solid var(--amber); outline-offset:2px; }
+  .btn{ background:var(--panel-2); color:var(--text); border:1px solid var(--hairline); padding:11px 16px; border-radius:10px; font-size:14px; font-weight:600; white-space:nowrap; transition:background .15s; }
+  .btn:hover{ background:#283734; }
+  .btn.primary{ background:var(--amber); color:#1a1305; border-color:var(--amber); }
+  .btn.primary:hover{ background:#f0b358; }
+  .btn.danger{ background:transparent; color:#c98a7e; border-color:var(--ember-dim); }
+  .btn.danger:hover{ background:rgba(255,106,69,.08); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.block{ width:100%; }
+  .power-row{ display:flex; align-items:center; gap:20px; }
+  .toggle{ position:relative; width:84px; height:84px; border-radius:50%; flex:none; background:radial-gradient(circle at 32% 28%, #263733, #182220 70%); border:1px solid var(--hairline); display:flex; align-items:center; justify-content:center; transition:box-shadow .25s, border-color .25s; }
+  .toggle .core{ width:56px; height:56px; border-radius:50%; background:#20302c; display:flex; align-items:center; justify-content:center; font-family:"IBM Plex Mono", monospace; font-size:11px; letter-spacing:.1em; color:var(--text-dim); transition:background .25s, color .25s; }
+  .toggle.on{ border-color:var(--ember); box-shadow:0 0 0 6px rgba(255,106,69,.10), 0 0 24px rgba(255,106,69,.25); }
+  .toggle.on .core{ background:var(--ember); color:#2a0f06; }
+  .toggle.pulse.on{ animation:pulse 2.2s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{ box-shadow:0 0 0 6px rgba(255,106,69,.10), 0 0 24px rgba(255,106,69,.25); } 50%{ box-shadow:0 0 0 9px rgba(255,106,69,.05), 0 0 34px rgba(255,106,69,.4); } }
+  .power-meta .state{ font-size:20px; font-weight:650; }
+  .power-meta .state.on{ color:var(--ember); }
+  .power-meta .sub{ font-size:12.5px; color:var(--text-dim); margin-top:2px; }
+  .coil-row{ display:flex; gap:16px; align-items:center; margin-bottom:16px; }
+  .coil-wrap{ flex:none; width:88px; height:88px; }
+  #coilSvg path.remain{ stroke:var(--amber); }
+  #coilSvg path.burnt{ stroke:#3a413c; }
+  #coilSvg circle.ember{ fill:var(--ember); opacity:0; }
+  #coilSvg circle.ember.active{ opacity:1; }
+  .countdown{ font-family:"IBM Plex Mono", monospace; font-size:34px; font-weight:600; letter-spacing:.01em; }
+  .countdown .lbl{ display:block; font-family:"IBM Plex Sans", sans-serif; font-size:12px; color:var(--text-dim); font-weight:500; margin-top:2px; letter-spacing:0; }
+  .presets{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  .chip{ background:var(--panel-2); border:1px solid var(--hairline); color:var(--text); font-size:13px; padding:8px 13px; border-radius:999px; font-weight:600; }
+  .chip.active{ background:var(--amber); color:#1a1305; border-color:var(--amber); }
+  .chip:hover:not(.active){ background:#283734; }
+  .custom-timer{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .custom-timer input[type=range]{ flex:1; accent-color:var(--amber); height:4px; }
+  .mm{ font-family:"IBM Plex Mono", monospace; font-size:15px; color:var(--text); background:var(--bg-0); border:1px solid var(--hairline); border-radius:8px; padding:8px 10px; width:64px; text-align:center; }
+  .start-row{ display:flex; gap:8px; }
+  .start-row .btn{ flex:1; }
+  .hint{ font-size:12px; color:var(--text-dim); line-height:1.5; margin-top:10px; padding-top:10px; border-top:1px dashed var(--hairline); }
+  .platform-note{ display:flex; gap:10px; align-items:flex-start; background:var(--bg-0); border:1px solid var(--hairline); border-radius:10px; padding:12px; margin-bottom:14px; }
+  .platform-note .icon{ font-size:18px; flex:none; line-height:1; margin-top:1px; }
+  .platform-note .txt{ font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+  .platform-note a{ color:var(--blue); text-decoration:none; }
+  .platform-note a:hover{ text-decoration:underline; }
+  #log{ max-height:150px; overflow-y:auto; font-family:"IBM Plex Mono", monospace; font-size:12.5px; line-height:1.9; color:var(--text-dim); }
+  #log .entry{ display:flex; gap:8px; }
+  #log .entry .t{ color:#5b655f; flex:none; }
+  #log .entry.warn .m{ color:var(--ember); }
+  #log .entry.ok .m{ color:var(--green-on); }
+  #log::-webkit-scrollbar{ width:6px; }
+  #log::-webkit-scrollbar-thumb{ background:var(--hairline); border-radius:3px; }
+  footer{ text-align:center; font-size:11px; color:#556058; margin-top:6px; font-family:"IBM Plex Mono", monospace; letter-spacing:.04em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <div class="wordmark">Relay Control</div>
+      <h1>MosqAway<span class="mosq">.</span></h1>
+    </div>
+    <div class="status-pill" id="statusPill"><span class="dot"></span><span id="statusText">Not connected</span></div>
+  </header>
+
+  <!-- CONNECT -->
+  <section class="panel">
+    <h2>Bluetooth Device</h2>
+    <div class="platform-note" id="platformNote" hidden>
+      <span class="icon">📱</span>
+      <span class="txt">
+        Safari and Chrome on iPhone/iPad can't do Bluetooth pairing from a web page — that's an Apple platform limit, not this page.
+        To connect from an iPad or iPhone, open this same page inside <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" target="_blank" rel="noopener">Bluefy – Web BLE Browser</a> (free on the App Store), then tap Connect below.
+      </span>
+    </div>
+    <button class="btn primary block" id="connectBtn">Connect via Bluetooth</button>
+    <div class="hint" id="supportHint"></div>
+  </section>
+
+  <!-- POWER -->
+  <section class="panel">
+    <h2>Power</h2>
+    <div class="power-row">
+      <button class="toggle" id="toggleBtn" aria-pressed="false" aria-label="Toggle relay power" disabled>
+        <span class="core" id="toggleCore">OFF</span>
+      </button>
+      <div class="power-meta">
+        <div class="state" id="powerState">Off</div>
+        <div class="sub" id="powerSub">Not connected</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMER -->
+  <section class="panel">
+    <h2>Timed Session<span id="sessionTag"></span></h2>
+    <div class="coil-row">
+      <div class="coil-wrap">
+        <svg id="coilSvg" viewBox="0 0 100 100" width="88" height="88">
+          <path class="burnt" d="M50 92 A38 38 0 1 1 88 54" fill="none" stroke-width="6" stroke-linecap="round"/>
+          <path class="remain" id="coilRemain" d="M50 92 A38 38 0 1 1 88 54" fill="none" stroke-width="6" stroke-linecap="round"/>
+          <circle class="ember" id="coilEmber" cx="50" cy="92" r="4.5"/>
+        </svg>
+      </div>
+      <div class="countdown" id="countdown">--:--<span class="lbl" id="countdownLbl">No active session</span></div>
+    </div>
+    <div class="presets" id="presets">
+      <button class="chip" data-sec="10">10 sec · test</button>
+      <button class="chip" data-sec="1800">30 min</button>
+      <button class="chip" data-sec="3600">60 min</button>
+    </div>
+    <div class="custom-timer">
+      <input type="range" id="customRange" min="1" max="240" value="20">
+      <input type="text" inputmode="numeric" class="mm" id="customMin" value="20">
+      <span style="font-size:12.5px;color:var(--text-dim);">min</span>
+    </div>
+    <div class="start-row">
+      <button class="btn primary" id="startBtn" disabled>Start session</button>
+      <button class="btn danger" id="stopBtn" disabled>Stop</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Log</h2>
+    <div id="log"></div>
+  </section>
+
+  <footer>MOSQAWAY · RELAY-CTL · BLUETOOTH LE</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // Must match the ESP32 firmware exactly.
+  const SERVICE_UUID = "12345678-1234-1234-1234-123456789001";
+  const COMMAND_CHARACTERISTIC_UUID = "12345678-1234-1234-1234-123456789002";
+  const STATUS_CHARACTERISTIC_UUID  = "12345678-1234-1234-1234-123456789003";
+
+  const state = {
+    device:null, server:null, cmdChar:null, statusChar:null,
+    connected:false, power:false, totalSeconds:0, remainingSeconds:0, localTimerId:null
+  };
+
+  const el = {
+    statusPill: document.getElementById("statusPill"),
+    statusText: document.getElementById("statusText"),
+    connectBtn: document.getElementById("connectBtn"),
+    supportHint: document.getElementById("supportHint"),
+    platformNote: document.getElementById("platformNote"),
+    toggleBtn: document.getElementById("toggleBtn"),
+    toggleCore: document.getElementById("toggleCore"),
+    powerState: document.getElementById("powerState"),
+    powerSub: document.getElementById("powerSub"),
+    presets: document.getElementById("presets"),
+    customRange: document.getElementById("customRange"),
+    customMin: document.getElementById("customMin"),
+    startBtn: document.getElementById("startBtn"),
+    stopBtn: document.getElementById("stopBtn"),
+    countdown: document.getElementById("countdown"),
+    countdownLbl: document.getElementById("countdownLbl"),
+    coilRemain: document.getElementById("coilRemain"),
+    coilEmber: document.getElementById("coilEmber"),
+    sessionTag: document.getElementById("sessionTag"),
+    log: document.getElementById("log")
+  };
+
+  const COIL_LEN = el.coilRemain.getTotalLength ? el.coilRemain.getTotalLength() : 150;
+  el.coilRemain.style.strokeDasharray = COIL_LEN;
+
+  function pad(n){ return String(n).padStart(2,"0"); }
+
+  function addLog(msg, kind){
+    const t = new Date();
+    const time = pad(t.getHours())+":"+pad(t.getMinutes())+":"+pad(t.getSeconds());
+    const row = document.createElement("div");
+    row.className = "entry" + (kind ? " "+kind : "");
+    row.innerHTML = '<span class="t">'+time+'</span><span class="m">'+msg+'</span>';
+    el.log.prepend(row);
+    while(el.log.children.length > 60){ el.log.removeChild(el.log.lastChild); }
+  }
+
+  // ---- iOS / support detection -------------------------------------------
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const hasWebBluetooth = !!(navigator.bluetooth);
+
+  if(!hasWebBluetooth){
+    el.connectBtn.disabled = true;
+    el.connectBtn.textContent = "Bluetooth not available in this browser";
+    if(isIOS){
+      el.platformNote.hidden = false;
+      addLog("This browser can't do Web Bluetooth. On iPad/iPhone, open this page in Bluefy instead.", "warn");
+    }else{
+      el.supportHint.textContent = "Try Chrome or Edge on desktop or Android.";
+      addLog("Web Bluetooth isn't available in this browser.", "warn");
+    }
+  }else if(isIOS){
+    // Web Bluetooth object exists — likely inside Bluefy or a similar BLE-enabled browser.
+    el.supportHint.textContent = "Bluetooth detected — you're good to connect.";
+  }else{
+    el.supportHint.textContent = "Works natively here — tap Connect and pick \u201CMosqAway\u201D from the list.";
+  }
+
+  function setConnected(isConnected){
+    state.connected = isConnected;
+    el.statusPill.classList.toggle("live", isConnected);
+    el.statusText.textContent = isConnected ? "Connected" : "Not connected";
+    el.connectBtn.textContent = isConnected ? "Disconnect" : "Connect via Bluetooth";
+    el.toggleBtn.disabled = !isConnected;
+    el.startBtn.disabled = !isConnected;
+    el.stopBtn.disabled = !isConnected || state.remainingSeconds <= 0;
+    if(!isConnected){
+      el.powerSub.textContent = "Not connected";
+    }
+  }
+
+  async function connect(){
+    try{
+      addLog("Requesting device…");
+      state.device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [SERVICE_UUID] }],
+        optionalServices: [SERVICE_UUID]
+      });
+      state.device.addEventListener("gattserverdisconnected", onDisconnected);
+
+      addLog("Pairing with " + (state.device.name || "device") + "…");
+      state.server = await state.device.gatt.connect();
+      const service = await state.server.getPrimaryService(SERVICE_UUID);
+      state.cmdChar = await service.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
+
+      try{
+        state.statusChar = await service.getCharacteristic(STATUS_CHARACTERISTIC_UUID);
+        await state.statusChar.startNotifications();
+        state.statusChar.addEventListener("characteristicvaluechanged", onStatusNotify);
+        // Ask for an immediate read too, in case notify hasn't fired yet.
+        try{ const v = await state.statusChar.readValue(); handleStatusValue(v); }catch(e){}
+      }catch(e){
+        addLog("Status characteristic not found — power state will track local commands only (update the firmware for live sync).", "warn");
+      }
+
+      setConnected(true);
+      addLog("Connected.", "ok");
+    }catch(err){
+      addLog("Connection failed or cancelled: " + (err && err.message ? err.message : err), "warn");
+      setConnected(false);
+    }
+  }
+
+  function onDisconnected(){
+    setConnected(false);
+    addLog("Device disconnected.", "warn");
+    if(state.localTimerId){ clearInterval(state.localTimerId); state.localTimerId = null; }
+  }
+
+  el.connectBtn.addEventListener("click", async ()=>{
+    if(state.connected){
+      if(state.device && state.device.gatt.connected){ state.device.gatt.disconnect(); }
+      setConnected(false);
+      addLog("Disconnected.");
+      return;
+    }
+    await connect();
+  });
+
+  // ---- commands -----------------------------------------------------------
+  async function sendCommand(cmd){
+    if(!state.cmdChar){ addLog("Not connected.", "warn"); return false; }
+    try{
+      const data = new TextEncoder().encode(cmd);
+      if(state.cmdChar.writeValueWithResponse){
+        await state.cmdChar.writeValueWithResponse(data);
+      }else{
+        await state.cmdChar.writeValue(data);
+      }
+      return true;
+    }catch(err){
+      addLog("Command failed: " + (err && err.message ? err.message : err), "warn");
+      return false;
+    }
+  }
+
+  // ---- status notifications ------------------------------------------------
+  function handleStatusValue(dataView){
+    try{
+      const text = new TextDecoder().decode(dataView.buffer ? dataView : new Uint8Array(dataView));
+      const data = JSON.parse(text);
+      state.remainingSeconds = data.remaining || 0;
+      if(state.remainingSeconds > 0){ state.totalSeconds = Math.max(state.totalSeconds, state.remainingSeconds); }
+      else{ state.totalSeconds = 0; }
+      renderPower(!!data.power);
+      renderCountdown();
+      if(state.remainingSeconds > 0){ startLocalCountdown(); }
+      else if(state.localTimerId){ clearInterval(state.localTimerId); state.localTimerId = null; }
+    }catch(e){ /* ignore malformed status payloads */ }
+  }
+  function onStatusNotify(e){ handleStatusValue(e.target.value); }
+
+  // ---- UI rendering --------------------------------------------------------
+  function renderPower(on){
+    state.power = on;
+    el.toggleBtn.classList.toggle("on", on);
+    el.toggleBtn.classList.toggle("pulse", on);
+    el.toggleBtn.setAttribute("aria-pressed", on ? "true":"false");
+    el.toggleCore.textContent = on ? "ON" : "OFF";
+    el.powerState.textContent = on ? "On" : "Off";
+    el.powerState.classList.toggle("on", on);
+    el.powerSub.textContent = on ? (state.totalSeconds > 0 ? "Running timed session" : "Relay energized — manual") : "Relay idle";
+  }
+
+  function renderCountdown(){
+    el.stopBtn.disabled = !state.connected || state.remainingSeconds <= 0;
+    el.sessionTag.textContent = state.remainingSeconds > 0 ? "· active" : "";
+    if(state.remainingSeconds <= 0){
+      el.countdown.childNodes[0].nodeValue = "--:--";
+      el.countdownLbl.textContent = "No active session";
+      el.coilRemain.style.strokeDashoffset = 0;
+      el.coilEmber.classList.remove("active");
+      highlightPreset(null);
+      return;
+    }
+    const m = Math.floor(state.remainingSeconds/60), s = state.remainingSeconds % 60;
+    el.countdown.childNodes[0].nodeValue = pad(m)+":"+pad(s);
+    el.countdownLbl.textContent = "remaining";
+    const frac = state.totalSeconds > 0 ? state.remainingSeconds/state.totalSeconds : 0;
+    el.coilRemain.style.strokeDashoffset = COIL_LEN * (1 - frac);
+    el.coilEmber.classList.add("active");
+  }
+
+  function highlightPreset(sec){
+    [...el.presets.children].forEach(c=> c.classList.toggle("active", Number(c.dataset.sec) === sec));
+  }
+
+  function startLocalCountdown(){
+    if(state.localTimerId) clearInterval(state.localTimerId);
+    state.localTimerId = setInterval(()=>{
+      if(state.remainingSeconds > 0){
+        state.remainingSeconds -= 1;
+        renderCountdown();
+        if(state.remainingSeconds <= 0){ renderPower(false); clearInterval(state.localTimerId); state.localTimerId = null; }
+      }
+    }, 1000);
+  }
+
+  // ---- power + timer actions -----------------------------------------------
+  el.toggleBtn.addEventListener("click", async ()=>{
+    const goingOn = !state.power;
+    const ok = await sendCommand(goingOn ? "ON" : "OFF");
+    if(!ok) return;
+    if(!goingOn){
+      state.remainingSeconds = 0; state.totalSeconds = 0;
+      if(state.localTimerId){ clearInterval(state.localTimerId); state.localTimerId = null; }
+    }
+    renderPower(goingOn);
+    renderCountdown();
+    addLog(goingOn ? "Relay switched on manually." : "Relay switched off.", goingOn ? "ok" : null);
+  });
+
+  async function startSession(seconds){
+    if(seconds <= 0) return;
+    const ok = await sendCommand("TIMER:" + seconds);
+    if(!ok) return;
+    state.totalSeconds = seconds;
+    state.remainingSeconds = seconds;
+    renderPower(true);
+    renderCountdown();
+    startLocalCountdown();
+    addLog("Timed session started — " + formatDuration(seconds) + ".", "ok");
+  }
+
+  function formatDuration(sec){
+    if(sec < 60) return sec + " sec";
+    return Math.round(sec/60) + " min";
+  }
+
+  el.presets.addEventListener("click", (e)=>{
+    const btn = e.target.closest(".chip");
+    if(!btn) return;
+    highlightPreset(Number(btn.dataset.sec));
+    startSession(Number(btn.dataset.sec));
+  });
+
+  function syncCustomFromRange(){ el.customMin.value = el.customRange.value; }
+  function syncCustomFromInput(){
+    let v = parseInt(el.customMin.value, 10);
+    if(isNaN(v)) v = 1;
+    v = Math.max(1, Math.min(240, v));
+    el.customMin.value = v; el.customRange.value = v;
+  }
+  el.customRange.addEventListener("input", syncCustomFromRange);
+  el.customMin.addEventListener("change", syncCustomFromInput);
+
+  el.startBtn.addEventListener("click", ()=>{
+    syncCustomFromInput();
+    highlightPreset(null);
+    startSession(Number(el.customMin.value) * 60);
+  });
+
+  el.stopBtn.addEventListener("click", async ()=>{
+    const ok = await sendCommand("OFF");
+    if(!ok) return;
+    if(state.localTimerId){ clearInterval(state.localTimerId); state.localTimerId = null; }
+    state.remainingSeconds = 0; state.totalSeconds = 0;
+    renderPower(false);
+    renderCountdown();
+    addLog("Session stopped manually.");
+  });
+
+  setConnected(false);
+  addLog(hasWebBluetooth ? "Ready. Tap Connect to pair with MosqAway." : "This browser can't reach Bluetooth devices from a web page.");
+})();
+</script>
+</body>
+</html>
