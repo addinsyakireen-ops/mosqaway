@@ -1,4 +1,4 @@
-[mosqawaycontroller.html](https://github.com/user-attachments/files/31345563/mosqawaycontroller.html)
+
 # mosqaway<!DOCTYPE html>
 <html lang="en">
 <head>
